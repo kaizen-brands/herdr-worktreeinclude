@@ -1,0 +1,23 @@
+id = "herdr-worktreeinclude"
+name = "Worktree Include"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "On worktree.created, copy gitignored files listed in .worktreeinclude from the source checkout into the new worktree."
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["npm", "ci"]
+
+[[build]]
+command = ["npm", "run", "build"]
+
+[[events]]
+on = "worktree.created"
+command = ["node", "dist/src/on-worktree-created.js"]
+
+[[actions]]
+id = "apply"
+title = "Apply .worktreeinclude"
+description = "Copy .worktreeinclude-selected gitignored files into the focused worktree"
+contexts = ["workspace"]
+command = ["node", "dist/src/apply-cli.js"]
