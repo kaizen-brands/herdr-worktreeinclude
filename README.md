@@ -8,10 +8,10 @@ A [Herdr](https://herdr.dev) plugin that restores selected **gitignored** local 
 | | |
 | --- | --- |
 | Plugin id | `herdr-worktreeinclude` |
-| Platforms | macOS, Linux |
+| Platforms | macOS, Linux (x86_64 + arm64) |
 | Min Herdr | `0.7.0` |
-| Runtime | Native Rust binary (no Node/Python) |
-| Build | `cargo` (at `plugin install`) |
+| Runtime | Prebuilt Rust binary (no Node/Python/cargo) |
+| Install | Downloads binary from GitHub Releases |
 
 ---
 
@@ -35,15 +35,15 @@ If the repo has no `.worktreeinclude`, the hook is a no-op.
 herdr plugin install eightHundreds/herdr-worktreeinclude
 ```
 
-Herdr runs `cargo build --release` during install and launches the resulting binary. You do **not** need Node, npm, Python, or TypeScript on the machine.
+On install, Herdr runs `install-prebuilt.sh`, which downloads the matching binary from [GitHub Releases](https://github.com/eightHundreds/herdr-worktreeinclude/releases) into `bin/`. **End users do not need Rust, Node, or Python** — only `curl`, `tar`, and Git.
 
 Requirements:
 
 - [Herdr](https://herdr.dev) ≥ 0.7.0  
-- [Rust toolchain](https://rustup.rs/) (`cargo` on `PATH`) for the install-time build  
 - Git  
+- `curl` + `tar` (standard on macOS/Linux)  
 
-After install, only the compiled binary + Git are needed at runtime.
+Prebuilt targets: `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`.
 
 Check that the plugin is registered:
 
@@ -102,10 +102,10 @@ Re-run copy for the focused workspace:
 herdr plugin action invoke herdr-worktreeinclude.apply
 ```
 
-Dry-run (from a built plugin tree, optional):
+Dry-run (from an installed or locally built plugin tree, optional):
 
 ```bash
-./target/release/herdr-worktreeinclude apply --dry-run
+./bin/herdr-worktreeinclude apply --dry-run
 ```
 
 #### Logs
@@ -132,12 +132,13 @@ worktreeinclude: copied: .env
 
 ### Development / local link
 
-`herdr plugin link` does **not** run `[[build]]`. Build first:
+`herdr plugin link` does **not** run `[[build]]`. Put a binary in `bin/` first:
 
 ```bash
 git clone https://github.com/eightHundreds/herdr-worktreeinclude.git
 cd herdr-worktreeinclude
 cargo build --release
+mkdir -p bin && cp target/release/herdr-worktreeinclude bin/
 herdr plugin link "$(pwd)"
 ```
 
@@ -145,9 +146,16 @@ After code changes:
 
 ```bash
 cargo build --release
+cp target/release/herdr-worktreeinclude bin/
 # re-link if the manifest changed:
 herdr plugin unlink herdr-worktreeinclude
 herdr plugin link "$(pwd)"
+```
+
+Or download the release binary for this machine:
+
+```bash
+bash install-prebuilt.sh
 ```
 
 Scripts:
@@ -156,6 +164,10 @@ Scripts:
 cargo test
 cargo build --release
 ```
+
+### Releasing prebuilts
+
+Push a version tag matching `herdr-plugin.toml` (e.g. `version = "0.2.0"` → tag `v0.2.0`). GitHub Actions builds and publishes release assets that `install-prebuilt.sh` downloads.
 
 ### How matching works
 
@@ -175,7 +187,7 @@ Evaluating patterns in an empty repo avoids the source `.gitignore` overriding `
 | --- | --- |
 | Nothing is copied | Is `.worktreeinclude` in the **main** repo root? Are source files present and gitignored? |
 | Plugin not running | `herdr plugin list` — installed/enabled in this Herdr session? |
-| Install failed | Is `cargo` on PATH? See build logs during `plugin install` |
+| Install failed | Network / GitHub Releases reachable? See `plugin install` logs. Unsupported arch? |
 | UI worktree, no copy | Confirm `worktree.created` fired via plugin logs; run the **Apply** action manually. Some Herdr UI paths may differ by version. |
 | File skipped | Destination already exists, or path is tracked |
 
@@ -207,15 +219,15 @@ Git worktree 只会检出 **已被跟踪（tracked）** 的文件。主仓库里
 herdr plugin install eightHundreds/herdr-worktreeinclude
 ```
 
-安装时 Herdr 会执行 `cargo build --release`，之后直接运行编译出的二进制。**不需要** Node、npm、Python 或 TypeScript。
+安装时 Herdr 会执行 `install-prebuilt.sh`，从 [GitHub Releases](https://github.com/eightHundreds/herdr-worktreeinclude/releases) 下载对应平台的预编译二进制到 `bin/`。**用户不需要** Rust、Node 或 Python，只要有 `curl`、`tar` 和 Git。
 
 机器需具备：
 
 - [Herdr](https://herdr.dev) ≥ 0.7.0  
-- [Rust 工具链](https://rustup.rs/)（安装时需要 `cargo` 在 `PATH` 中）  
 - Git  
+- `curl` + `tar`（macOS/Linux 一般自带）  
 
-安装完成后，运行时只依赖编译好的二进制和 Git。
+预编译目标：`aarch64-apple-darwin`、`x86_64-apple-darwin`、`x86_64-unknown-linux-musl`、`aarch64-unknown-linux-musl`。
 
 确认插件已注册：
 
@@ -274,10 +286,10 @@ config/secrets.json
 herdr plugin action invoke herdr-worktreeinclude.apply
 ```
 
-仅预览（需已 build 的插件目录）：
+仅预览（需已安装或本地构建的插件目录）：
 
 ```bash
-./target/release/herdr-worktreeinclude apply --dry-run
+./bin/herdr-worktreeinclude apply --dry-run
 ```
 
 #### 日志
@@ -304,12 +316,13 @@ worktreeinclude: copied: .env
 
 ### 本地开发 / link
 
-`herdr plugin link` **不会**执行 `[[build]]`，需先自行编译：
+`herdr plugin link` **不会**执行 `[[build]]`，需先把二进制放到 `bin/`：
 
 ```bash
 git clone https://github.com/eightHundreds/herdr-worktreeinclude.git
 cd herdr-worktreeinclude
 cargo build --release
+mkdir -p bin && cp target/release/herdr-worktreeinclude bin/
 herdr plugin link "$(pwd)"
 ```
 
@@ -317,9 +330,16 @@ herdr plugin link "$(pwd)"
 
 ```bash
 cargo build --release
+cp target/release/herdr-worktreeinclude bin/
 # 若改了 manifest，可重新 link：
 herdr plugin unlink herdr-worktreeinclude
 herdr plugin link "$(pwd)"
+```
+
+或直接拉本机对应的 Release 二进制：
+
+```bash
+bash install-prebuilt.sh
 ```
 
 命令：
@@ -328,6 +348,10 @@ herdr plugin link "$(pwd)"
 cargo test
 cargo build --release
 ```
+
+### 发布预编译包
+
+推送与 `herdr-plugin.toml` 版本一致的 tag（例如 `version = "0.2.0"` → `v0.2.0`）。GitHub Actions 会构建并发布 Release 资源，供 `install-prebuilt.sh` 下载。
 
 ### 匹配原理
 
@@ -347,7 +371,7 @@ cargo build --release
 | --- | --- |
 | 什么都没拷 | 主仓库根是否有 `.worktreeinclude`？源文件是否存在且被 ignore？ |
 | 钩子没跑 | `herdr plugin list` — 当前 Herdr session 是否已安装/启用？ |
-| 安装失败 | `cargo` 是否在 PATH？看 `plugin install` 的 build 日志 |
+| 安装失败 | 能否访问 GitHub Releases？看 `plugin install` 日志。架构是否支持？ |
 | UI 建 worktree 未拷贝 | 用插件日志确认是否触发 `worktree.created`；可手动跑 **Apply**。部分 Herdr 版本 UI 路径可能不同 |
 | 文件被跳过 | 目标已存在，或路径是 tracked |
 

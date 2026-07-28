@@ -1,22 +1,23 @@
 id = "herdr-worktreeinclude"
 name = "Worktree Include"
-version = "0.1.0"
+version = "0.2.0"
 min_herdr_version = "0.7.0"
 description = "On worktree.created, copy gitignored files listed in .worktreeinclude from the source checkout into the new worktree."
 platforms = ["linux", "macos"]
 
-# Built at install time (needs cargo). `plugin link` does not build, so local
-# devs run `cargo build --release` themselves.
+# On `herdr plugin install`, download the prebuilt binary for this platform from
+# the matching GitHub Release into bin/ (no Rust toolchain needed). Skipped by
+# `herdr plugin link` — for a local checkout, build with cargo (see README).
 [[build]]
-command = ["cargo", "build", "--release"]
+command = ["bash", "install-prebuilt.sh"]
 
 [[events]]
 on = "worktree.created"
-command = ["./target/release/herdr-worktreeinclude", "on-worktree-created"]
+command = ["./bin/herdr-worktreeinclude", "on-worktree-created"]
 
 [[actions]]
 id = "apply"
 title = "Apply .worktreeinclude"
 description = "Copy .worktreeinclude-selected gitignored files into the focused worktree"
 contexts = ["workspace"]
-command = ["./target/release/herdr-worktreeinclude", "apply"]
+command = ["./bin/herdr-worktreeinclude", "apply"]
