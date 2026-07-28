@@ -5,19 +5,18 @@ min_herdr_version = "0.7.0"
 description = "On worktree.created, copy gitignored files listed in .worktreeinclude from the source checkout into the new worktree."
 platforms = ["linux", "macos"]
 
+# Built at install time (needs cargo). `plugin link` does not build, so local
+# devs run `cargo build --release` themselves.
 [[build]]
-command = ["npm", "ci"]
-
-[[build]]
-command = ["npm", "run", "build"]
+command = ["cargo", "build", "--release"]
 
 [[events]]
 on = "worktree.created"
-command = ["node", "dist/src/on-worktree-created.js"]
+command = ["./target/release/herdr-worktreeinclude", "on-worktree-created"]
 
 [[actions]]
 id = "apply"
 title = "Apply .worktreeinclude"
 description = "Copy .worktreeinclude-selected gitignored files into the focused worktree"
 contexts = ["workspace"]
-command = ["node", "dist/src/apply-cli.js"]
+command = ["./target/release/herdr-worktreeinclude", "apply"]

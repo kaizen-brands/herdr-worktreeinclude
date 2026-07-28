@@ -10,7 +10,8 @@ A [Herdr](https://herdr.dev) plugin that restores selected **gitignored** local 
 | Plugin id | `herdr-worktreeinclude` |
 | Platforms | macOS, Linux |
 | Min Herdr | `0.7.0` |
-| Runtime | Node.js ≥ 20 (build on install) |
+| Runtime | Native Rust binary (no Node/Python) |
+| Build | `cargo` (at `plugin install`) |
 
 ---
 
@@ -34,13 +35,15 @@ If the repo has no `.worktreeinclude`, the hook is a no-op.
 herdr plugin install eightHundreds/herdr-worktreeinclude
 ```
 
-Herdr runs `npm ci` and `npm run build` (TypeScript → `dist/`) during install. You do **not** need to run `tsc` yourself for a normal install.
+Herdr runs `cargo build --release` during install and launches the resulting binary. You do **not** need Node, npm, Python, or TypeScript on the machine.
 
-Requirements on the machine:
+Requirements:
 
 - [Herdr](https://herdr.dev) ≥ 0.7.0  
-- Node.js ≥ 20 and npm on `PATH`  
+- [Rust toolchain](https://rustup.rs/) (`cargo` on `PATH`) for the install-time build  
 - Git  
+
+After install, only the compiled binary + Git are needed at runtime.
 
 Check that the plugin is registered:
 
@@ -102,7 +105,7 @@ herdr plugin action invoke herdr-worktreeinclude.apply
 Dry-run (from a built plugin tree, optional):
 
 ```bash
-node dist/src/apply-cli.js --dry-run
+./target/release/herdr-worktreeinclude apply --dry-run
 ```
 
 #### Logs
@@ -134,15 +137,14 @@ worktreeinclude: copied: .env
 ```bash
 git clone https://github.com/eightHundreds/herdr-worktreeinclude.git
 cd herdr-worktreeinclude
-npm install
-npm run build
+cargo build --release
 herdr plugin link "$(pwd)"
 ```
 
 After code changes:
 
 ```bash
-npm run build
+cargo build --release
 # re-link if the manifest changed:
 herdr plugin unlink herdr-worktreeinclude
 herdr plugin link "$(pwd)"
@@ -151,9 +153,8 @@ herdr plugin link "$(pwd)"
 Scripts:
 
 ```bash
-npm run typecheck
-npm test          # build + node:test
-npm run check     # typecheck + test
+cargo test
+cargo build --release
 ```
 
 ### How matching works
@@ -174,7 +175,7 @@ Evaluating patterns in an empty repo avoids the source `.gitignore` overriding `
 | --- | --- |
 | Nothing is copied | Is `.worktreeinclude` in the **main** repo root? Are source files present and gitignored? |
 | Plugin not running | `herdr plugin list` — installed/enabled in this Herdr session? |
-| Install failed | Node/npm on PATH? Build logs during `plugin install` |
+| Install failed | Is `cargo` on PATH? See build logs during `plugin install` |
 | UI worktree, no copy | Confirm `worktree.created` fired via plugin logs; run the **Apply** action manually. Some Herdr UI paths may differ by version. |
 | File skipped | Destination already exists, or path is tracked |
 
@@ -206,13 +207,15 @@ Git worktree 只会检出 **已被跟踪（tracked）** 的文件。主仓库里
 herdr plugin install eightHundreds/herdr-worktreeinclude
 ```
 
-安装时 Herdr 会自动执行 `npm ci` 和 `npm run build`（TypeScript 编译到 `dist/`）。**普通安装不需要**你自己到目录里跑 `tsc`。
+安装时 Herdr 会执行 `cargo build --release`，之后直接运行编译出的二进制。**不需要** Node、npm、Python 或 TypeScript。
 
 机器需具备：
 
 - [Herdr](https://herdr.dev) ≥ 0.7.0  
-- Node.js ≥ 20，且 `npm` 在 `PATH` 中  
+- [Rust 工具链](https://rustup.rs/)（安装时需要 `cargo` 在 `PATH` 中）  
 - Git  
+
+安装完成后，运行时只依赖编译好的二进制和 Git。
 
 确认插件已注册：
 
@@ -274,7 +277,7 @@ herdr plugin action invoke herdr-worktreeinclude.apply
 仅预览（需已 build 的插件目录）：
 
 ```bash
-node dist/src/apply-cli.js --dry-run
+./target/release/herdr-worktreeinclude apply --dry-run
 ```
 
 #### 日志
@@ -306,26 +309,24 @@ worktreeinclude: copied: .env
 ```bash
 git clone https://github.com/eightHundreds/herdr-worktreeinclude.git
 cd herdr-worktreeinclude
-npm install
-npm run build
+cargo build --release
 herdr plugin link "$(pwd)"
 ```
 
 改代码后：
 
 ```bash
-npm run build
+cargo build --release
 # 若改了 manifest，可重新 link：
 herdr plugin unlink herdr-worktreeinclude
 herdr plugin link "$(pwd)"
 ```
 
-脚本：
+命令：
 
 ```bash
-npm run typecheck
-npm test          # build + node:test
-npm run check     # typecheck + test
+cargo test
+cargo build --release
 ```
 
 ### 匹配原理
@@ -346,7 +347,7 @@ npm run check     # typecheck + test
 | --- | --- |
 | 什么都没拷 | 主仓库根是否有 `.worktreeinclude`？源文件是否存在且被 ignore？ |
 | 钩子没跑 | `herdr plugin list` — 当前 Herdr session 是否已安装/启用？ |
-| 安装失败 | Node/npm 是否在 PATH？看 `plugin install` 的 build 日志 |
+| 安装失败 | `cargo` 是否在 PATH？看 `plugin install` 的 build 日志 |
 | UI 建 worktree 未拷贝 | 用插件日志确认是否触发 `worktree.created`；可手动跑 **Apply**。部分 Herdr 版本 UI 路径可能不同 |
 | 文件被跳过 | 目标已存在，或路径是 tracked |
 
