@@ -4,6 +4,7 @@
 //! One binary, dispatched by subcommand (set in herdr-plugin.toml):
 //!   on-worktree-created   event hook for worktree.created
 //!   apply                 manual action for the focused worktree
+//!   create-kaizen-worktree create and open a canonical Kaizen worktree
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -14,20 +15,41 @@ use herdr_worktreeinclude::git::git_rev_parse_top_level;
 use herdr_worktreeinclude::parse_event::parse_worktree_created_paths;
 use serde_json::Value;
 
+mod kaizen;
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let code = match args.get(1).map(String::as_str) {
         Some("on-worktree-created") => cmd_on_worktree_created(),
         Some("apply") => cmd_apply(&args[2..]),
+        Some("create-kaizen-worktree") => cmd_create_kaizen_worktree(&args[2..]),
         other => {
             eprintln!(
-                "usage: herdr-worktreeinclude <on-worktree-created | apply [--dry-run]>"
+                "usage: herdr-worktreeinclude <on-worktree-created | apply [--dry-run] | create-kaizen-worktree [--harness NAME] [--slug SLUG]>"
             );
             eprintln!("got: {other:?}");
             2
         }
     };
     process::exit(code);
+}
+
+fn cmd_create_kaizen_worktree(args: &[String]) -> i32 {
+    let options = match kaizen::parse_create_options(args) {
+        Ok(options) => options,
+        Err(error) => {
+            eprintln!("worktreeinclude: {error}");
+            return 2;
+        }
+    };
+
+    match kaizen::create_and_open(&options) {
+        Ok(_) => 0,
+        Err(error) => {
+            eprintln!("worktreeinclude: {error}");
+            1
+        }
+    }
 }
 
 fn log(message: &str) {
