@@ -94,6 +94,10 @@ You can commit `.worktreeinclude` (patterns only). Keep secret **values** out of
 
 After creation, matching files should appear in the new worktree.
 
+For Kaizen repositories, use the **Create Kaizen worktree** action below so
+the checkout is created through Kaizen’s canonical helper instead of Herdr’s
+generic worktree creator.
+
 #### Manual
 
 Re-run copy for the focused workspace:
@@ -299,6 +303,9 @@ config/secrets.json
 3. 像往常一样在 Herdr 中创建 worktree（侧边栏 **New worktree** 或 `herdr worktree create ...`）。  
 
 创建完成后，匹配的文件应出现在新 worktree 中。
+
+对于 Kaizen 仓库，请使用下面的 **Create Kaizen worktree** 操作，让 checkout
+通过 Kaizen 的规范 helper 创建，而不是使用 Herdr 的通用 worktree creator。
 
 #### 手动
 
