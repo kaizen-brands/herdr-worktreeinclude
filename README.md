@@ -3,11 +3,11 @@
 [![Herdr](https://img.shields.io/badge/herdr-plugin-4f46e5)](https://herdr.dev/plugins/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-A [Herdr](https://herdr.dev) plugin that restores selected **gitignored** local files into newly created Git worktrees, using the project’s `.worktreeinclude` file (same idea as [Claude Code worktrees](https://code.claude.com/docs/en/worktrees#copy-gitignored-files-into-worktrees)).
+A [Herdr](https://herdr.dev) plugin that restores selected **gitignored** local files into newly created Git worktrees, using the project’s `.worktreeinclude` file (same idea as [Claude Code worktrees](https://code.claude.com/docs/en/worktrees#copy-gitignored-files-into-worktrees)). It also provides a Kaizen action that delegates worktree creation to Kaizen’s canonical worktree helper.
 
 | | |
 | --- | --- |
-| Plugin id | `herdr-worktreeinclude` |
+| Plugin id | `kaizen.herdr-worktreeinclude` |
 | Platforms | macOS, Linux (x86_64 + arm64) |
 | Min Herdr | `0.7.0` |
 | Runtime | Prebuilt Rust binary (no Node/Python/cargo) |
@@ -32,10 +32,10 @@ If the repo has no `.worktreeinclude`, the hook is a no-op.
 ### Install
 
 ```bash
-herdr plugin install eightHundreds/herdr-worktreeinclude
+herdr plugin install kaizen-brands/herdr-worktreeinclude
 ```
 
-On install, Herdr runs `install-prebuilt.sh`, which downloads the matching binary from [GitHub Releases](https://github.com/eightHundreds/herdr-worktreeinclude/releases) into `bin/`. **End users do not need Rust, Node, or Python** — only `curl`, `tar`, and Git.
+On install, Herdr runs `install-prebuilt.sh`, which downloads the matching binary from [GitHub Releases](https://github.com/kaizen-brands/herdr-worktreeinclude/releases) into `bin/`. **End users do not need Rust, Node, or Python** — only `curl`, `tar`, and Git.
 
 Requirements:
 
@@ -99,7 +99,7 @@ After creation, matching files should appear in the new worktree.
 Re-run copy for the focused workspace:
 
 ```bash
-herdr plugin action invoke herdr-worktreeinclude.apply
+herdr plugin action invoke kaizen.herdr-worktreeinclude.apply
 ```
 
 Dry-run (from an installed or locally built plugin tree, optional):
@@ -108,10 +108,31 @@ Dry-run (from an installed or locally built plugin tree, optional):
 ./bin/herdr-worktreeinclude apply --dry-run
 ```
 
+#### Kaizen worktree action
+
+Use the **Create Kaizen worktree** action from a Herdr workspace when the
+checkout must follow Kaizen’s canonical contract. The action delegates to
+`kaizen-worktree.sh`, so it creates the central-root path, harness lane,
+`<slug>-<id8>` name, branch, claim, and environment files before opening the
+checkout in Herdr. It never asks Herdr’s native creator to make an intermediate
+non-canonical checkout.
+
+The action defaults to the `automation` harness because Herdr is a transport,
+not a coding harness. Set `KAIZEN_HERDR_HARNESS` when the worktree belongs to a
+specific harness, and set `KAIZEN_HERDR_WORKTREE_SLUG` when the workspace label
+is not a useful task slug.
+
+For direct CLI use, the same operation is available as:
+
+```bash
+./bin/herdr-worktreeinclude create-kaizen-worktree \
+  --harness codex --slug preview-e2e
+```
+
 #### Logs
 
 ```bash
-herdr plugin log list --plugin herdr-worktreeinclude
+herdr plugin log list --plugin kaizen.herdr-worktreeinclude
 ```
 
 Example lines:
@@ -135,8 +156,9 @@ worktreeinclude: copied: .env
 `herdr plugin link` does **not** run `[[build]]`. Put a binary in `bin/` first:
 
 ```bash
-git clone https://github.com/eightHundreds/herdr-worktreeinclude.git
+git clone https://github.com/kaizen-brands/herdr-worktreeinclude.git
 cd herdr-worktreeinclude
+git remote add upstream https://github.com/eightHundreds/herdr-worktreeinclude.git
 cargo build --release
 mkdir -p bin && cp target/release/herdr-worktreeinclude bin/
 herdr plugin link "$(pwd)"
@@ -148,7 +170,7 @@ After code changes:
 cargo build --release
 cp target/release/herdr-worktreeinclude bin/
 # re-link if the manifest changed:
-herdr plugin unlink herdr-worktreeinclude
+herdr plugin unlink kaizen.herdr-worktreeinclude
 herdr plugin link "$(pwd)"
 ```
 
@@ -167,7 +189,7 @@ cargo build --release
 
 ### Releasing prebuilts
 
-Push a version tag matching `herdr-plugin.toml` (e.g. `version = "0.2.0"` → tag `v0.2.0`). GitHub Actions builds and publishes release assets that `install-prebuilt.sh` downloads.
+Push a version tag matching `herdr-plugin.toml` (e.g. `version = "0.3.0"` → tag `v0.3.0`). GitHub Actions builds and publishes release assets that `install-prebuilt.sh` downloads.
 
 ### How matching works
 
@@ -216,10 +238,10 @@ Git worktree 只会检出 **已被跟踪（tracked）** 的文件。主仓库里
 ### 安装
 
 ```bash
-herdr plugin install eightHundreds/herdr-worktreeinclude
+herdr plugin install kaizen-brands/herdr-worktreeinclude
 ```
 
-安装时 Herdr 会执行 `install-prebuilt.sh`，从 [GitHub Releases](https://github.com/eightHundreds/herdr-worktreeinclude/releases) 下载对应平台的预编译二进制到 `bin/`。**用户不需要** Rust、Node 或 Python，只要有 `curl`、`tar` 和 Git。
+安装时 Herdr 会执行 `install-prebuilt.sh`，从 [GitHub Releases](https://github.com/kaizen-brands/herdr-worktreeinclude/releases) 下载对应平台的预编译二进制到 `bin/`。**用户不需要** Rust、Node 或 Python，只要有 `curl`、`tar` 和 Git。
 
 机器需具备：
 
@@ -283,7 +305,7 @@ config/secrets.json
 对当前焦点 workspace 再执行一次拷贝：
 
 ```bash
-herdr plugin action invoke herdr-worktreeinclude.apply
+herdr plugin action invoke kaizen.herdr-worktreeinclude.apply
 ```
 
 仅预览（需已安装或本地构建的插件目录）：
@@ -292,10 +314,21 @@ herdr plugin action invoke herdr-worktreeinclude.apply
 ./bin/herdr-worktreeinclude apply --dry-run
 ```
 
+#### Kaizen worktree 操作
+
+在 Herdr workspace 中使用 **Create Kaizen worktree** 操作时，插件会调用
+Kaizen 的规范 worktree helper，创建正确的中央路径、harness、`<slug>-<id8>`
+名称、分支、claim 和环境文件，然后在 Herdr 中打开该 checkout。它不会先让
+Herdr 创建一个不符合 Kaizen 规范的中间 checkout。
+
+默认 harness 是 `automation`，因为 Herdr 是传输层而不是 coding harness。
+如果任务属于特定 harness，可以设置 `KAIZEN_HERDR_HARNESS`；如果 workspace
+标签不适合作为任务 slug，可以设置 `KAIZEN_HERDR_WORKTREE_SLUG`。
+
 #### 日志
 
 ```bash
-herdr plugin log list --plugin herdr-worktreeinclude
+herdr plugin log list --plugin kaizen.herdr-worktreeinclude
 ```
 
 示例：
@@ -319,8 +352,9 @@ worktreeinclude: copied: .env
 `herdr plugin link` **不会**执行 `[[build]]`，需先把二进制放到 `bin/`：
 
 ```bash
-git clone https://github.com/eightHundreds/herdr-worktreeinclude.git
+git clone https://github.com/kaizen-brands/herdr-worktreeinclude.git
 cd herdr-worktreeinclude
+git remote add upstream https://github.com/eightHundreds/herdr-worktreeinclude.git
 cargo build --release
 mkdir -p bin && cp target/release/herdr-worktreeinclude bin/
 herdr plugin link "$(pwd)"
@@ -332,7 +366,7 @@ herdr plugin link "$(pwd)"
 cargo build --release
 cp target/release/herdr-worktreeinclude bin/
 # 若改了 manifest，可重新 link：
-herdr plugin unlink herdr-worktreeinclude
+herdr plugin unlink kaizen.herdr-worktreeinclude
 herdr plugin link "$(pwd)"
 ```
 
@@ -351,7 +385,7 @@ cargo build --release
 
 ### 发布预编译包
 
-推送与 `herdr-plugin.toml` 版本一致的 tag（例如 `version = "0.2.0"` → `v0.2.0`）。GitHub Actions 会构建并发布 Release 资源，供 `install-prebuilt.sh` 下载。
+推送与 `herdr-plugin.toml` 版本一致的 tag（例如 `version = "0.3.0"` → `v0.3.0`）。GitHub Actions 会构建并发布 Release 资源，供 `install-prebuilt.sh` 下载。
 
 ### 匹配原理
 

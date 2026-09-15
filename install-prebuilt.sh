@@ -5,7 +5,7 @@
 set -euo pipefail
 
 NAME="herdr-worktreeinclude"
-REPO="eightHundreds/herdr-worktreeinclude"
+REPO="kaizen-brands/herdr-worktreeinclude"
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="$ROOT/bin"

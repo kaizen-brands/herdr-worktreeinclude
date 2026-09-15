@@ -1,8 +1,8 @@
-id = "herdr-worktreeinclude"
-name = "Worktree Include"
-version = "0.2.0"
+id = "kaizen.herdr-worktreeinclude"
+name = "Kaizen Worktree Include"
+version = "0.3.0"
 min_herdr_version = "0.7.0"
-description = "On worktree.created, copy gitignored files listed in .worktreeinclude from the source checkout into the new worktree."
+description = "Copy .worktreeinclude files and create canonical Kaizen worktrees from Herdr."
 platforms = ["linux", "macos"]
 
 # On `herdr plugin install`, download the prebuilt binary for this platform from
@@ -21,3 +21,10 @@ title = "Apply .worktreeinclude"
 description = "Copy .worktreeinclude-selected gitignored files into the focused worktree"
 contexts = ["workspace"]
 command = ["./bin/herdr-worktreeinclude", "apply"]
+
+[[actions]]
+id = "create"
+title = "Create Kaizen worktree"
+description = "Create a canonical Kaizen worktree and open it in Herdr"
+contexts = ["workspace"]
+command = ["./bin/herdr-worktreeinclude", "create-kaizen-worktree"]
