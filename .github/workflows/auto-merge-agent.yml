@@ -1,0 +1,53 @@
+# GENERATED STUB — do not hand-edit.
+# Regenerate with `pnpm build:workflow-contract`.
+# Body: kaizen-brands/code-factory/.github/workflows/run-lite.yml@5f63430a4320275d4e0cb943f8adbf33e2e4d77e
+# Contract: src/workflow-contract.mjs WORKFLOW_SPECS['auto-merge-agent']
+# Produces check context: enable-auto-merge / run
+# Per-repo variance: on
+
+name: auto-merge-agent
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted, dismissed]
+  check_run:
+    types: [completed]
+  check_suite:
+    types: [completed]
+  # These are workflow `name:` values, not job names. They survive the reusable-workflow
+  # migration only because every stub keeps its exact `name:`. Repos whose ci-source is
+  # named `CI · Source` need that spelling here instead — declared variance, not drift.
+  workflow_run:
+    workflows: ["CI Source", "high-risk-guard"]
+    types: [completed]
+  status: {}
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to re-evaluate after a terminal source check
+        required: true
+        type: number
+      head_sha:
+        description: Exact pull request head SHA that triggered the re-evaluation
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  issues: read
+  pull-requests: read
+  statuses: read
+
+concurrency:
+  group: code-factory-admission-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  enable-auto-merge:
+    name: enable-auto-merge
+    uses: kaizen-brands/code-factory/.github/workflows/run-lite.yml@5f63430a4320275d4e0cb943f8adbf33e2e4d77e
+    secrets: inherit
