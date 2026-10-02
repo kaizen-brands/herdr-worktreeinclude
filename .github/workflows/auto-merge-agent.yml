@@ -1,6 +1,6 @@
 # GENERATED STUB — do not hand-edit.
 # Regenerate with `pnpm build:workflow-contract`.
-# Body: kaizen-brands/code-factory/.github/workflows/run-lite.yml@5f63430a4320275d4e0cb943f8adbf33e2e4d77e
+# Body: kaizen-brands/code-factory/.github/workflows/run-lite.yml@fd34253a1593d3b33a393f626db1debcb5b37ba7
 # Contract: src/workflow-contract.mjs WORKFLOW_SPECS['auto-merge-agent']
 # Produces check context: enable-auto-merge / run
 # Per-repo variance: on
@@ -49,5 +49,5 @@ concurrency:
 jobs:
   enable-auto-merge:
     name: enable-auto-merge
-    uses: kaizen-brands/code-factory/.github/workflows/run-lite.yml@5f63430a4320275d4e0cb943f8adbf33e2e4d77e
+    uses: kaizen-brands/code-factory/.github/workflows/run-lite.yml@fd34253a1593d3b33a393f626db1debcb5b37ba7
     secrets: inherit
