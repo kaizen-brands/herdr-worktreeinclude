@@ -41,12 +41,15 @@ permissions:
   pull-requests: read
   statuses: read
 
-concurrency:
-  group: code-factory-admission-${{ github.repository }}
-  cancel-in-progress: false
-
 jobs:
   enable-auto-merge:
     name: enable-auto-merge
+    if: >-
+      (github.event_name != 'status' || github.event.state != 'pending') &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.event != 'push' ||
+      github.event.workflow_run.head_branch != github.event.repository.default_branch)
+    concurrency:
+      group: code-factory-gate-${{ github.repository }}-${{ github.event.pull_request.head.sha || inputs.head_sha || github.event.check_run.head_sha || github.event.check_suite.head_sha || github.event.workflow_run.head_sha || github.event.sha || github.run_id }}
+      cancel-in-progress: false
     uses: kaizen-brands/code-factory/.github/workflows/run-lite.yml@b6d53594f83effe447c2813a067f9144537a7d59
     secrets: inherit
