@@ -22,6 +22,9 @@ on:
     workflows: ["CI*", "ci", "App CI", "high-risk-guard"]
     types: [completed]
   status: {}
+  # Re-admit PRs whose gate was cancelled, locked out, or left unarmed.
+  schedule:
+    - cron: "7,27,47 * * * *"
   workflow_dispatch:
     inputs:
       pr:
@@ -34,7 +37,7 @@ on:
         type: string
 
 permissions:
-  actions: read
+  actions: write
   checks: read
   contents: read
   issues: read
@@ -45,6 +48,7 @@ jobs:
   enable-auto-merge:
     name: enable-auto-merge
     if: >-
+      github.event_name != 'schedule' &&
       (github.event_name != 'status' || github.event.state != 'pending') &&
       (github.event_name != 'workflow_run' || github.event.workflow_run.event != 'push' ||
       github.event.workflow_run.head_branch != github.event.repository.default_branch)
@@ -53,3 +57,284 @@ jobs:
       cancel-in-progress: false
     uses: kaizen-brands/code-factory/.github/workflows/run-lite.yml@e66d6c12c32c33d1bfbcbac9b24014991a7c4b28
     secrets: inherit
+
+  sweep-stuck-prs:
+    name: sweep-stuck-prs
+    if: github.event_name == 'schedule'
+    runs-on: [self-hosted, linux, x64, kaizen-control-plane]
+    timeout-minutes: 15
+    concurrency:
+      group: code-factory-admission-sweep-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Re-admit stuck pull requests and infra failures
+        env:
+          ADMISSION_SWEEPER: 1
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          cat > "${RUNNER_TEMP:-/tmp}/admission-sweeper.mjs" <<'ADMISSION_SWEEPER'
+          /**
+           * Scheduled recovery for pull requests the event gate dropped.
+           *
+           * The auto-merge stub embeds this file and runs it every 20 minutes. It
+           * dispatches a fresh gate for an open PR whose required checks are green but
+           * which is not approved and armed, and for a PR whose last gate run was
+           * cancelled or failed. It also reruns, once, other workflows that died because
+           * the runner was lost. Policy failures are left alone.
+           */
+
+          export const GATE_CONTEXTS = new Set(["enable-auto-merge / run", "enable-auto-merge"]);
+          export const BOT_LOGINS = new Set(["kaizen-pr-reviewer[bot]", "kaizen-pr-reviewer-personal[bot]"]);
+          export const INFRA_CONCLUSIONS = new Set(["cancelled", "timed_out", "startup_failure"]);
+          export const GATE_WORKFLOWS = new Set(["auto-merge-agent", "Dependabot Auto-Merge"]);
+          const MAX_ACTIONS = 15;
+          const RECENT_SUCCESS_MS = 15 * 60 * 1000;
+          const OPEN_STATUSES = new Set(["queued", "in_progress", "waiting", "pending", "requested"]);
+
+          /** Required status-check contexts, or null when the rules payload cannot be trusted. */
+          export function requiredContexts(rules) {
+          	if (!Array.isArray(rules)) return null;
+          	const names = [];
+          	for (const rule of rules) {
+          		if (rule?.type !== "required_status_checks") continue;
+          		for (const check of rule.parameters?.required_status_checks ?? []) {
+          			const name = typeof check === "string" ? check : check?.context;
+          			if (typeof name === "string" && name) names.push(name);
+          		}
+          	}
+          	return names;
+          }
+
+          /** True when every required context other than this gate is already green. */
+          export function otherRequiredGreen(required, checks) {
+          	const list = Array.isArray(checks) ? checks : [];
+          	if (required == null) {
+          		const others = list.filter((check) => !GATE_CONTEXTS.has(check.name));
+          		return others.length > 0 && others.every((check) => check.status === "completed" && check.conclusion === "success");
+          	}
+          	const names = required.filter((name) => !GATE_CONTEXTS.has(name));
+          	// No other required context means the gate itself is the only blocker.
+          	if (!names.length) return true;
+          	return names.every((name) => list.some((check) => check.name === name && check.status === "completed" && check.conclusion === "success"));
+          }
+
+          /** True when the reviewer App approved this exact head. */
+          export function hasBotApproval(reviews, headSha) {
+          	return Array.isArray(reviews) && reviews.some((review) =>
+          		BOT_LOGINS.has(review?.user?.login) && review.state === "APPROVED" && review.commit_id === headSha);
+          }
+
+          /** A failed gate log that names a transient read, lock, or GitHub outage. */
+          export function logIsInfra(text) {
+          	return /sources-incomplete|FileLockBusy|admission lock busy|HTTP 50\d|rate limit|primary-rate-limit|secondary-rate-limit|CODE_FACTORY_LITE_INFRA_UNAVAILABLE/.test(String(text ?? ""));
+          }
+
+          /**
+           * A pull request needs another admission pass when the last gate was cancelled,
+           * timed out, or failed for infrastructure, or when its other required checks are
+           * green and merge is not both approved and armed. A gate that succeeded moments
+           * ago waits for the next cron. A policy failure is not redispatched.
+           */
+          export function needsAdmission(input) {
+          	if (input.draft || input.gateInProgress) return false;
+          	const latest = input.latestGate;
+          	if (latest?.conclusion === "success") {
+          		const age = Date.now() - Date.parse(latest.updated_at ?? "");
+          		if (Number.isFinite(age) && age >= 0 && age < RECENT_SUCCESS_MS) return false;
+          	}
+          	// A policy refusal stays failed. Only an infrastructure log earns another pass.
+          	if (latest?.conclusion === "failure" && input.infraLog !== true) return false;
+          	// Cancelled, timed out, or an infrastructure failure blocks the required check
+          	// even when auto-merge was already armed. Dispatch another pass.
+          	const gateBroken = INFRA_CONCLUSIONS.has(latest?.conclusion) || input.infraLog === true;
+          	if (gateBroken) return true;
+          	return Boolean(input.requiredGreen && (!input.approved || !input.autoMerge));
+          }
+
+          /**
+           * A first attempt that lost its runner. Gate workflows are recovered by a
+           * fresh dispatch instead, so a policy failure there is not rerun blindly.
+           */
+          export function isInfraRerun(run, jobs = []) {
+          	if (run?.run_attempt !== 1 || run.status !== "completed") return false;
+          	if (GATE_WORKFLOWS.has(run.name)) return false;
+          	if (INFRA_CONCLUSIONS.has(run.conclusion)) return true;
+          	if (run.conclusion !== "failure") return false;
+          	return jobs.some((job) => (job.steps ?? []).some((step) => step.name === "Set up runner" && step.conclusion === "failure"));
+          }
+
+          /** Combine check-runs and legacy statuses into one list of {name,status,conclusion}. */
+          export function flattenChecks(checkRuns, status) {
+          	const checks = [];
+          	for (const run of checkRuns?.check_runs ?? []) {
+          		checks.push({ name: run.name, status: run.status, conclusion: run.conclusion });
+          	}
+          	for (const item of status?.statuses ?? []) {
+          		const pending = item.state === "pending";
+          		checks.push({
+          			name: item.context,
+          			status: pending ? "in_progress" : "completed",
+          			conclusion: item.state === "success" ? "success" : pending ? null : "failure",
+          		});
+          	}
+          	return checks;
+          }
+
+          /** True when the failed gate job's log names an infrastructure error. */
+          async function gateLogIsInfra(request, repo, run) {
+          	const jobs = await read(request, `repos/${repo}/actions/runs/${run.id}/jobs?per_page=20`);
+          	const failed = (jobs?.jobs ?? []).find((job) => job.conclusion === "failure");
+          	if (!failed?.id) return false;
+          	const log = await read(request, `repos/${repo}/actions/jobs/${failed.id}/logs`);
+          	return logIsInfra(typeof log === "string" ? log : "");
+          }
+
+          async function read(request, path) {
+          	try {
+          		return await request(path);
+          	} catch (error) {
+          		console.log(JSON.stringify({ event: "CODE_FACTORY_ADMISSION_SWEEP", action: "skip", path, reason: String(error) }));
+          		return null;
+          	}
+          }
+
+          /** Dispatch fresh gates and rerun lost runners. `request` performs one GitHub API call. */
+          export async function sweep(repo, request) {
+          	const repository = await request(`repos/${repo}`);
+          	const base = repository?.default_branch;
+          	if (typeof base !== "string" || !base) throw new Error("default branch unavailable");
+          	const pulls = [];
+          	for (let page = 1; page <= 3; page++) {
+          		const batch = await request(`repos/${repo}/pulls?state=open&per_page=100&page=${page}`);
+          		if (!Array.isArray(batch)) break;
+          		pulls.push(...batch);
+          		if (batch.length < 100) break;
+          	}
+          	const rules = await read(request, `repos/${repo}/rules/branches/${encodeURIComponent(base)}`);
+          	const required = requiredContexts(rules);
+          	const openShas = new Set();
+          	const dispatches = [];
+          	for (const pull of pulls) {
+          		if (pull?.draft || !Number.isInteger(pull?.number) || typeof pull?.head?.sha !== "string") continue;
+          		openShas.add(pull.head.sha);
+          		if (dispatches.length >= MAX_ACTIONS) continue;
+          		const sha = pull.head.sha;
+          		const [checkRuns, status, reviews, gates] = await Promise.all([
+          			read(request, `repos/${repo}/commits/${sha}/check-runs?per_page=100`),
+          			read(request, `repos/${repo}/commits/${sha}/status`),
+          			read(request, `repos/${repo}/pulls/${pull.number}/reviews?per_page=100`),
+          			read(request, `repos/${repo}/actions/workflows/auto-merge-agent.yml/runs?head_sha=${sha}&per_page=5`),
+          		]);
+          		const runs = gates?.workflow_runs ?? [];
+          		const latestGate = runs.find((run) => run.status === "completed") ?? null;
+          		const admit = needsAdmission({
+          			draft: false,
+          			autoMerge: Boolean(pull.auto_merge),
+          			requiredGreen: otherRequiredGreen(required, flattenChecks(checkRuns, status)),
+          			approved: hasBotApproval(reviews, sha),
+          			latestGate,
+          			infraLog: latestGate?.conclusion === "failure" && await gateLogIsInfra(request, repo, latestGate),
+          			gateInProgress: runs.some((run) => OPEN_STATUSES.has(run.status)),
+          		});
+          		if (admit) dispatches.push({ pr: pull.number, sha });
+          	}
+          	for (const item of dispatches) {
+          		await request(`repos/${repo}/actions/workflows/auto-merge-agent.yml/dispatches`, {
+          			method: "POST",
+          			body: JSON.stringify({ ref: base, inputs: { pr: String(item.pr), head_sha: item.sha } }),
+          		});
+          		console.log(JSON.stringify({ event: "CODE_FACTORY_ADMISSION_SWEEP", action: "dispatch", pr: item.pr, head: item.sha }));
+          	}
+          	let reruns = 0;
+          	for (const conclusion of ["cancelled", "timed_out", "failure"]) {
+          		const recent = await read(request, `repos/${repo}/actions/runs?status=completed&conclusion=${conclusion}&per_page=30`);
+          		for (const run of recent?.workflow_runs ?? []) {
+          			if (reruns >= MAX_ACTIONS || !openShas.has(run.head_sha)) continue;
+          			const jobs = run.conclusion === "failure"
+          				? (await read(request, `repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`))?.jobs ?? []
+          				: [];
+          			if (!isInfraRerun(run, jobs)) continue;
+          			const path = INFRA_CONCLUSIONS.has(run.conclusion)
+          				? `repos/${repo}/actions/runs/${run.id}/rerun`
+          				: `repos/${repo}/actions/runs/${run.id}/rerun-failed-jobs`;
+          			await request(path, { method: "POST" });
+          			reruns++;
+          			console.log(JSON.stringify({ event: "CODE_FACTORY_ADMISSION_SWEEP", action: "rerun", run: run.id, workflow: run.name, conclusion: run.conclusion }));
+          		}
+          	}
+          	return { dispatches: dispatches.length, reruns };
+          }
+
+          /** YAML lines for the scheduled job. The caller embeds this module in the run step. */
+          export function sweeperJobLines(source) {
+          	const body = source.replace(/\n$/, "").split("\n");
+          	return [
+          		"",
+          		"  sweep-stuck-prs:",
+          		"    name: sweep-stuck-prs",
+          		"    if: github.event_name == 'schedule'",
+          		"    runs-on: [self-hosted, linux, x64, kaizen-control-plane]",
+          		"    timeout-minutes: 15",
+          		"    concurrency:",
+          		"      group: code-factory-admission-sweep-${{ github.repository }}",
+          		"      cancel-in-progress: false",
+          		"    steps:",
+          		"      - name: Re-admit stuck pull requests and infra failures",
+          		"        env:",
+          		"          ADMISSION_SWEEPER: 1",
+          		"          GH_TOKEN: ${{ github.token }}",
+          		"          GITHUB_REPOSITORY: ${{ github.repository }}",
+          		"        run: |",
+          		"          cat > \"${RUNNER_TEMP:-/tmp}/admission-sweeper.mjs\" <<'ADMISSION_SWEEPER'",
+          		...body.map((line) => (line.length ? `          ${line}` : "")),
+          		"          ADMISSION_SWEEPER",
+          		"          bun \"${RUNNER_TEMP:-/tmp}/admission-sweeper.mjs\"",
+          	];
+          }
+
+          async function github(path, init = {}) {
+          	const token = process.env.GH_TOKEN;
+          	if (!token) throw new Error("GH_TOKEN unavailable");
+          	const response = await fetch(`https://api.github.com/${path}`, {
+          		method: init.method ?? "GET",
+          		body: init.body,
+          		headers: {
+          			Accept: "application/vnd.github+json",
+          			Authorization: `Bearer ${token}`,
+          			"X-GitHub-Api-Version": "2022-11-28",
+          			...(init.body ? { "Content-Type": "application/json" } : {}),
+          		},
+          	});
+          	if (response.status === 204) return null;
+          	const text = await response.text();
+          	let body = null;
+          	if (text) {
+          		try {
+          			body = JSON.parse(text);
+          		} catch {
+          			body = text;
+          		}
+          	}
+          	if (response.status === 403 || response.status === 429) {
+          		throw new Error(`GitHub rate limit or permission (${response.status})`);
+          	}
+          	if (!response.ok) throw new Error(`GitHub ${response.status} ${path}`);
+          	return body;
+          }
+
+          /** Entry point for the scheduled stub. Infra trouble logs and exits success. */
+          export async function main() {
+          	const repo = process.env.GITHUB_REPOSITORY;
+          	if (!repo) throw new Error("GITHUB_REPOSITORY unavailable");
+          	const result = await sweep(repo, github);
+          	console.log(JSON.stringify({ event: "CODE_FACTORY_ADMISSION_SWEEP", ...result }));
+          }
+
+          if (process.env.ADMISSION_SWEEPER === "1") {
+          	main().catch((error) => {
+          		console.log(JSON.stringify({ event: "CODE_FACTORY_ADMISSION_SWEEPER_UNAVAILABLE", reason: String(error), outcome: "neutral" }));
+          	});
+          }
+          ADMISSION_SWEEPER
+          bun "${RUNNER_TEMP:-/tmp}/admission-sweeper.mjs"
