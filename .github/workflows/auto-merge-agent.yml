@@ -16,11 +16,10 @@ on:
     types: [completed]
   check_suite:
     types: [completed]
-  # These are workflow `name:` values, not job names. They survive the reusable-workflow
-  # migration only because every stub keeps its exact `name:`. Repos whose ci-source is
-  # named `CI · Source` need that spelling here instead — declared variance, not drift.
+  # GitHub Actions check events do not wake another Actions workflow. Listen for
+  # CI workflow-name completions, including aggregate, source and product lanes.
   workflow_run:
-    workflows: ["CI Source", "high-risk-guard"]
+    workflows: ["CI*", "ci", "App CI", "high-risk-guard"]
     types: [completed]
   status: {}
   workflow_dispatch:
