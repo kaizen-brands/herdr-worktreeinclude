@@ -205,19 +205,28 @@ jobs:
 
           /** Combine check-runs and legacy statuses into one list of {name,status,conclusion}. */
           export function flattenChecks(checkRuns, status) {
-          	const checks = [];
+          	const latest = new Map();
+          	const add = (check, time, id = 0) => {
+          		const timestamp = Date.parse(time ?? "") || 0;
+          		const previous = latest.get(check.name);
+          		const tied = previous && timestamp === previous.timestamp;
+          		const unready = check.status !== "completed" || check.conclusion !== "success";
+          		if (!previous || timestamp > previous.timestamp || (tied && (id > previous.id || (id === previous.id && unready)))) {
+          			latest.set(check.name, { check, timestamp, id });
+          		}
+          	};
           	for (const run of checkRuns?.check_runs ?? []) {
-          		checks.push({ name: run.name, status: run.status, conclusion: run.conclusion });
+          		add({ name: run.name, status: run.status, conclusion: run.conclusion }, run.started_at ?? run.created_at, run.id);
           	}
           	for (const item of status?.statuses ?? []) {
           		const pending = item.state === "pending";
-          		checks.push({
+          		add({
           			name: item.context,
           			status: pending ? "in_progress" : "completed",
           			conclusion: item.state === "success" ? "success" : pending ? null : "failure",
-          		});
+          		}, item.created_at ?? item.updated_at, item.id);
           	}
-          	return checks;
+          	return [...latest.values()].map(({ check }) => check);
           }
 
           /** True when the failed gate job's log names an infrastructure error. */
@@ -293,20 +302,26 @@ jobs:
           		console.log(JSON.stringify({ event: "CODE_FACTORY_ADMISSION_SWEEP", action: "dispatch", pr: item.pr, head: item.sha }));
           	}
           	let reruns = 0;
+          	let jobProbes = 0;
           	for (const conclusion of ["cancelled", "timed_out", "failure"]) {
-          		const recent = await read(request, `repos/${repo}/actions/runs?status=completed&conclusion=${conclusion}&per_page=30`);
-          		for (const run of recent?.workflow_runs ?? []) {
-          			if (reruns >= MAX_ACTIONS || !openShas.has(run.head_sha)) continue;
-          			const jobs = run.conclusion === "failure"
-          				? (await read(request, `repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`))?.jobs ?? []
-          				: [];
-          			if (!isInfraRerun(run, jobs)) continue;
-          			const path = INFRA_CONCLUSIONS.has(run.conclusion)
-          				? `repos/${repo}/actions/runs/${run.id}/rerun`
-          				: `repos/${repo}/actions/runs/${run.id}/rerun-failed-jobs`;
-          			await request(path, { method: "POST" });
-          			reruns++;
-          			console.log(JSON.stringify({ event: "CODE_FACTORY_ADMISSION_SWEEP", action: "rerun", run: run.id, workflow: run.name, conclusion: run.conclusion }));
+          		// ponytail: scan at most 300 runs per conclusion; widen only for measured backlog.
+          		for (let page = 1; page <= 3 && reruns < MAX_ACTIONS; page++) {
+          			const recent = await read(request, `repos/${repo}/actions/runs?status=${conclusion}&per_page=100&page=${page}`);
+          			for (const run of recent?.workflow_runs ?? []) {
+          				if (reruns >= MAX_ACTIONS || !openShas.has(run.head_sha) || run.run_attempt !== 1 || run.status !== "completed" || GATE_WORKFLOWS.has(run.name)) continue;
+          				if (run.conclusion === "failure" && jobProbes++ >= MAX_ACTIONS) continue;
+          				const jobs = run.conclusion === "failure"
+          					? (await read(request, `repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`))?.jobs ?? []
+          					: [];
+          				if (!isInfraRerun(run, jobs)) continue;
+          				const path = INFRA_CONCLUSIONS.has(run.conclusion)
+          					? `repos/${repo}/actions/runs/${run.id}/rerun`
+          					: `repos/${repo}/actions/runs/${run.id}/rerun-failed-jobs`;
+          				await request(path, { method: "POST" });
+          				reruns++;
+          				console.log(JSON.stringify({ event: "CODE_FACTORY_ADMISSION_SWEEP", action: "rerun", run: run.id, workflow: run.name, conclusion: run.conclusion }));
+          			}
+          			if (!recent?.workflow_runs || recent.workflow_runs.length < 100) break;
           		}
           	}
           	return { dispatches: dispatches.length, reruns };
