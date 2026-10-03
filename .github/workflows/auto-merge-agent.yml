@@ -198,8 +198,7 @@ jobs:
           export function isInfraRerun(run, jobs = []) {
           	if (run?.run_attempt !== 1 || run.status !== "completed") return false;
           	if (GATE_WORKFLOWS.has(run.name)) return false;
-          	if (INFRA_CONCLUSIONS.has(run.conclusion)) return true;
-          	if (run.conclusion !== "failure") return false;
+          	if (!INFRA_CONCLUSIONS.has(run.conclusion) && run.conclusion !== "failure") return false;
           	return jobs.some((job) => (job.steps ?? []).some((step) => step.name === "Set up runner" && step.conclusion === "failure"));
           }
 
@@ -309,10 +308,8 @@ jobs:
           			const recent = await read(request, `repos/${repo}/actions/runs?status=${conclusion}&per_page=100&page=${page}`);
           			for (const run of recent?.workflow_runs ?? []) {
           				if (reruns >= MAX_ACTIONS || !openShas.has(run.head_sha) || run.run_attempt !== 1 || run.status !== "completed" || GATE_WORKFLOWS.has(run.name)) continue;
-          				if (run.conclusion === "failure" && jobProbes++ >= MAX_ACTIONS) continue;
-          				const jobs = run.conclusion === "failure"
-          					? (await read(request, `repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`))?.jobs ?? []
-          					: [];
+          				if (jobProbes++ >= MAX_ACTIONS) continue;
+          				const jobs = (await read(request, `repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`))?.jobs ?? [];
           				if (!isInfraRerun(run, jobs)) continue;
           				const path = INFRA_CONCLUSIONS.has(run.conclusion)
           					? `repos/${repo}/actions/runs/${run.id}/rerun`
