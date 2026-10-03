@@ -6,6 +6,7 @@
 # Per-repo variance: on
 
 name: auto-merge-agent
+run-name: "${{ github.event_name == 'workflow_dispatch' && format('admission-sweep pr={0} sha={1}', inputs.pr, inputs.head_sha) || github.event.pull_request.title || github.workflow }}"
 
 on:
   pull_request:
@@ -37,7 +38,6 @@ on:
         type: string
 
 permissions:
-  actions: write
   checks: read
   contents: read
   issues: read
@@ -60,6 +60,12 @@ jobs:
 
   sweep-stuck-prs:
     name: sweep-stuck-prs
+    permissions:
+      actions: write
+      checks: read
+      contents: read
+      pull-requests: read
+      statuses: read
     if: github.event_name == 'schedule'
     runs-on: [self-hosted, linux, x64, kaizen-control-plane]
     timeout-minutes: 15
@@ -80,8 +86,10 @@ jobs:
            * The auto-merge stub embeds this file and runs it every 20 minutes. It
            * dispatches a fresh gate for an open PR whose required checks are green but
            * which is not approved and armed, and for a PR whose last gate run was
-           * cancelled or failed. It also reruns, once, other workflows that died because
-           * the runner was lost. Policy failures are left alone.
+           * cancelled or failed. A dispatch runs on the default branch, so it is tagged
+           * and ignored for one retry window instead of being fired again every pass.
+           * It also reruns, once, other workflows that died because the runner was lost.
+           * Policy failures are left alone.
            */
 
           export const GATE_CONTEXTS = new Set(["enable-auto-merge / run", "enable-auto-merge"]);
@@ -91,6 +99,36 @@ jobs:
           const MAX_ACTIONS = 15;
           const RECENT_SUCCESS_MS = 15 * 60 * 1000;
           const OPEN_STATUSES = new Set(["queued", "in_progress", "waiting", "pending", "requested"]);
+          /** Long enough that the next 20-minute cron still sees the previous dispatch. */
+          export const DISPATCH_WINDOW_MS = 30 * 60 * 1000;
+          const DISPATCH_TITLE = /^admission-sweep pr=(\d+) sha=([a-f0-9]{40})$/;
+
+          /**
+           * Pull request and head encoded in a sweeper dispatch title.
+           * Untagged runs, including ordinary pull_request gates, return null.
+           */
+          export function parseDispatchTitle(title) {
+          	const match = DISPATCH_TITLE.exec(String(title ?? "").trim());
+          	if (!match) return null;
+          	const pr = Number(match[1]);
+          	if (!Number.isInteger(pr) || pr < 1) return null;
+          	return { pr, sha: match[2] };
+          }
+
+          /**
+           * True when this sweeper already dispatched `pr` at `sha` and that run is
+           * still open, or finished inside the retry window. A missing list fails open.
+           */
+          export function dispatchBlocks(runs, pr, sha, now = Date.now()) {
+          	for (const run of runs ?? []) {
+          		const tag = parseDispatchTitle(run?.display_title) ?? parseDispatchTitle(run?.name);
+          		if (!tag || tag.pr !== pr || tag.sha !== sha) continue;
+          		if (OPEN_STATUSES.has(run.status)) return true;
+          		const age = now - Date.parse(run.created_at ?? run.updated_at ?? "");
+          		if (Number.isFinite(age) && age >= 0 && age < DISPATCH_WINDOW_MS) return true;
+          	}
+          	return false;
+          }
 
           /** Required status-check contexts, or null when the rules payload cannot be trusted. */
           export function requiredContexts(rules) {
@@ -134,10 +172,11 @@ jobs:
            * A pull request needs another admission pass when the last gate was cancelled,
            * timed out, or failed for infrastructure, or when its other required checks are
            * green and merge is not both approved and armed. A gate that succeeded moments
-           * ago waits for the next cron. A policy failure is not redispatched.
+           * ago waits for the next cron. A dispatch this sweeper already fired inside
+           * the retry window waits too. A policy failure is not redispatched.
            */
           export function needsAdmission(input) {
-          	if (input.draft || input.gateInProgress) return false;
+          	if (input.draft || input.gateInProgress || input.recentDispatch) return false;
           	const latest = input.latestGate;
           	if (latest?.conclusion === "success") {
           		const age = Date.now() - Date.parse(latest.updated_at ?? "");
@@ -213,6 +252,12 @@ jobs:
           	}
           	const rules = await read(request, `repos/${repo}/rules/branches/${encodeURIComponent(base)}`);
           	const required = requiredContexts(rules);
+          	// workflow_dispatch runs carry the default-branch SHA, so a head_sha query
+          	// cannot see them. Read the tagged dispatches once per pass.
+          	const ownDispatches = (await read(
+          		request,
+          		`repos/${repo}/actions/workflows/auto-merge-agent.yml/runs?event=workflow_dispatch&per_page=30`,
+          	))?.workflow_runs ?? [];
           	const openShas = new Set();
           	const dispatches = [];
           	for (const pull of pulls) {
@@ -236,6 +281,7 @@ jobs:
           			latestGate,
           			infraLog: latestGate?.conclusion === "failure" && await gateLogIsInfra(request, repo, latestGate),
           			gateInProgress: runs.some((run) => OPEN_STATUSES.has(run.status)),
+          			recentDispatch: dispatchBlocks(ownDispatches, pull.number, sha),
           		});
           		if (admit) dispatches.push({ pr: pull.number, sha });
           	}
@@ -273,6 +319,12 @@ jobs:
           		"",
           		"  sweep-stuck-prs:",
           		"    name: sweep-stuck-prs",
+          		"    permissions:",
+          		"      actions: write",
+          		"      checks: read",
+          		"      contents: read",
+          		"      pull-requests: read",
+          		"      statuses: read",
           		"    if: github.event_name == 'schedule'",
           		"    runs-on: [self-hosted, linux, x64, kaizen-control-plane]",
           		"    timeout-minutes: 15",
