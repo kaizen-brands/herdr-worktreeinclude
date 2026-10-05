@@ -53,7 +53,7 @@ jobs:
       (github.event_name != 'workflow_run' || github.event.workflow_run.event != 'push' ||
       github.event.workflow_run.head_branch != github.event.repository.default_branch)
     concurrency:
-      group: code-factory-gate-${{ github.repository }}-${{ github.event.pull_request.head.sha || inputs.head_sha || github.event.check_run.head_sha || github.event.check_suite.head_sha || github.event.workflow_run.head_sha || github.event.sha || github.run_id }}
+      group: code-factory-gate-${{ github.repository }}-${{ github.event.pull_request && 'pr' || 'signal' }}-${{ github.event.pull_request.head.sha || inputs.head_sha || github.event.check_run.head_sha || github.event.check_suite.head_sha || github.event.workflow_run.head_sha || github.event.sha || github.run_id }}
       cancel-in-progress: false
     uses: kaizen-brands/code-factory/.github/workflows/run-lite.yml@e66d6c12c32c33d1bfbcbac9b24014991a7c4b28
     secrets: inherit
