@@ -1,6 +1,6 @@
 # GENERATED STUB — do not hand-edit.
 # Regenerate with `pnpm build:workflow-contract`.
-# Body: kaizen-brands/code-factory/.github/workflows/run-lite.yml@e66d6c12c32c33d1bfbcbac9b24014991a7c4b28
+# Body: kaizen-brands/code-factory/.github/workflows/run-code-factory.yml@023593888ead7e65c7a2bf25ace592094a7581cd
 # Contract: src/workflow-contract.mjs WORKFLOW_SPECS['auto-merge-agent']
 # Produces check context: enable-auto-merge / run
 # Per-repo variance: on
@@ -55,7 +55,7 @@ jobs:
     concurrency:
       group: code-factory-gate-${{ github.repository }}-${{ github.event.pull_request && 'pr' || 'signal' }}-${{ github.event.pull_request.head.sha || inputs.head_sha || github.event.check_run.head_sha || github.event.check_suite.head_sha || github.event.workflow_run.head_sha || github.event.sha || github.run_id }}
       cancel-in-progress: false
-    uses: kaizen-brands/code-factory/.github/workflows/run-lite.yml@e66d6c12c32c33d1bfbcbac9b24014991a7c4b28
+    uses: kaizen-brands/code-factory/.github/workflows/run-code-factory.yml@023593888ead7e65c7a2bf25ace592094a7581cd
     secrets: inherit
 
   sweep-stuck-prs:
