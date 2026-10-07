@@ -1,6 +1,6 @@
 # GENERATED STUB — do not hand-edit.
 # Regenerate with `pnpm build:workflow-contract`.
-# Body: kaizen-brands/code-factory/.github/workflows/run-code-factory.yml@023593888ead7e65c7a2bf25ace592094a7581cd
+# Body: kaizen-brands/code-factory/.github/workflows/run-code-factory.yml@f0ad589a838629d91ad291398ca2104c04fdc7f9
 # Contract: src/workflow-contract.mjs WORKFLOW_SPECS['auto-merge-agent']
 # Produces check context: enable-auto-merge / run
 # Per-repo variance: on
@@ -55,7 +55,7 @@ jobs:
     concurrency:
       group: code-factory-gate-${{ github.repository }}-${{ github.event.pull_request && 'pr' || 'signal' }}-${{ github.event.pull_request.head.sha || inputs.head_sha || github.event.check_run.head_sha || github.event.check_suite.head_sha || github.event.workflow_run.head_sha || github.event.sha || github.run_id }}
       cancel-in-progress: false
-    uses: kaizen-brands/code-factory/.github/workflows/run-code-factory.yml@023593888ead7e65c7a2bf25ace592094a7581cd
+    uses: kaizen-brands/code-factory/.github/workflows/run-code-factory.yml@f0ad589a838629d91ad291398ca2104c04fdc7f9
     secrets: inherit
 
   sweep-stuck-prs:
@@ -165,7 +165,7 @@ jobs:
 
           /** A failed gate log that names a transient read, lock, or GitHub outage. */
           export function logIsInfra(text) {
-          	return /sources-incomplete|FileLockBusy|admission lock busy|HTTP 50\d|rate limit|primary-rate-limit|secondary-rate-limit|CODE_FACTORY_LITE_INFRA_UNAVAILABLE/.test(String(text ?? ""));
+          	return /sources-incomplete|FileLockBusy|admission lock busy|HTTP 50\d|rate limit|primary-rate-limit|secondary-rate-limit|CODE_FACTORY_(?:LITE_)?INFRA_UNAVAILABLE/.test(String(text ?? ""));
           }
 
           /**
